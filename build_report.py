@@ -410,6 +410,8 @@ if __name__ == "__main__":
     a = ap.parse_args()
     day = json.load(open(a.day)); base = json.load(open(a.baseline)); hist = json.load(open(a.history))
     doc, foot = build(day, base, hist)
+    from name_guard import check_text
+    check_text(doc, "the report")
     render_pdf(doc, foot, a.out)
     if not a.no_history_update:
         json.dump(update_history(hist, day), open(a.history, "w"), indent=1)

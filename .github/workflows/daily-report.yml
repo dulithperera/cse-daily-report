@@ -50,6 +50,10 @@ jobs:
           echo "PDF=reports/Daily_Stock_Focus-$D.pdf" >> "$GITHUB_ENV"
           echo "DAY=$D" >> "$GITHUB_ENV"
 
+      - name: Check for blocked names
+        if: steps.collect.outputs.skip != 'true'
+        run: python name_guard.py "$PDF" day.json history.json baseline.json send_email.py build_report.py README.md
+
       - name: Email the report
         if: steps.collect.outputs.skip != 'true'
         env:
