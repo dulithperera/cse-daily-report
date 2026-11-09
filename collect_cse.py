@@ -52,6 +52,7 @@ def main(baseline_path, out_path):
             continue
         close = x["closingPrice"] if x.get("closingPrice") and x["closingPrice"] > 0 else x["price"]
         prices[t] = {"close": close, "prev_close": x["previousClose"], "volume": x.get("sharevolume")}
+    names = {x["symbol"][:-4]: x["name"] for x in ts if x.get("name") and x["symbol"][:-4] in want}
 
     market = {
         "aspi": aspi["value"], "sl20": snp["value"],
@@ -66,7 +67,7 @@ def main(baseline_path, out_path):
                       foreign_sell_mn=d["equityForeignSales"] / 1e6)
 
     day = {"date": today, "marketStatus": status.get("status"), "dailySummaryReady": bool(d),
-           "market": market, "sectors": sec, "prices": prices}
+           "market": market, "sectors": sec, "prices": prices, "names": names}
     json.dump(day, open(out_path, "w"), indent=1)
     print(f"{today}: ASPI {market['aspi']}, {len(prices)}/{len(want)} covered stocks traded, "
           f"daily summary {'ready' if d else 'not yet published'}")

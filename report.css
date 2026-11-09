@@ -121,3 +121,6 @@ table.stk tr { break-inside: avoid; }
 .ib2 h4 { margin: 0 0 3px; font-size: 8.5px; color: #17427a; letter-spacing: 0.3px; }
 .ib2 p { margin: 0; font-size: 8.3px; line-height: 1.55; color: #2b2f36; }
 .disc { margin-top: 12px; font-size: 7.5px; color: #6b7280; line-height: 1.5; max-width: 240mm; }
+
+.tk .cn { font-weight: 400; color: #6b7280; margin-left: 5px; font-size: 6.5px; }
+table.stk tr.nt-row td.tk .cn { color: #9aa0a8; }

@@ -52,7 +52,7 @@ jobs:
 
       - name: Check for blocked names
         if: steps.collect.outputs.skip != 'true'
-        run: python name_guard.py "$PDF" day.json history.json baseline.json send_email.py build_report.py README.md
+        run: python name_guard.py "$PDF" day.json history.json baseline.json names.json send_email.py build_report.py README.md
 
       - name: Email the report
         if: steps.collect.outputs.skip != 'true'
@@ -67,6 +67,6 @@ jobs:
         run: |
           git config user.name "cse-daily-report"
           git config user.email "actions@users.noreply.github.com"
-          git add history.json reports/
+          git add history.json names.json reports/
           git commit -m "Daily Stock Focus $DAY" || echo "nothing to commit"
           git push

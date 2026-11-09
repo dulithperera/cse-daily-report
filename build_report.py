@@ -15,7 +15,7 @@ day.json (gathered after the close from cse.lk):
 }
 Any missing market field is shown as "–" rather than guessed.
 """
-import argparse, json, math, io, os, subprocess, tempfile, html, datetime as dt
+import argparse, json, math, io, os, re, subprocess, tempfile, html, datetime as dt
 import matplotlib
 import matplotlib.ticker
 matplotlib.use("Agg")
@@ -48,6 +48,25 @@ def shade(v):
     a = min(abs(v) / 10, 1) * 0.28 + 0.06
     rgb = "76,160,60" if v > 0 else "214,69,58"
     return f' style="background:rgba({rgb},{a:.2f})"'
+
+
+# ---------------------------------------------------------------- company names
+KEEP_UPPER = {"DFCC", "HNB", "LOLC", "LB", "CIC", "PGP", "IOC", "CWE", "RIL", "BPPL", "ACL", "SL", "HNBF", "NDB", "UB"}
+def short_name(raw, limit=30):
+    if not raw: return ""
+    s = re.sub(r"\s+", " ", raw).strip()
+    s = re.sub(r"\b(?:[A-Z] )+[A-Z]\b", lambda m: m.group(0).replace(" ", ""), s)   # "L O L C" -> "LOLC"
+    s = re.sub(r"\s+(PLC|LIMITED|LTD)\.?$", "", s, flags=re.I)
+    s = re.sub(r"^THE\s+", "", s, flags=re.I)
+    words = []
+    for w in s.split(" "):
+        core = re.sub(r"[^A-Za-z]", "", w)
+        if core.upper() in KEEP_UPPER or (core.isupper() and len(core) <= 4 and not re.search(r"[AEIOU]", core)):
+            words.append(w.upper())
+        else:
+            words.append(re.sub(r"[A-Za-z]+", lambda m: m.group(0).capitalize(), w.lower()))
+    s = " ".join(words).replace(" Of ", " of ").replace(" And ", " & ").replace(" Company", " Co.").replace("'S ", "'s ")
+    return s if len(s) <= limit else s[:limit - 1].rstrip() + "…"
 
 
 # ---------------------------------------------------------------- history helpers
@@ -106,7 +125,8 @@ def bar_chart(points, colour_fn, label_last=True):
 
 
 # ---------------------------------------------------------------- main build
-def build(day, base, hist):
+def build(day, base, hist, names=None):
+    names = dict(names or {}); names.update(day.get("names", {}))
     D = day["date"]; m = day.get("market", {})
     days = [d for d in hist["days"] if d["date"] < D]
     prev = next((d for d in reversed(days) if not d.get("approx_month_ago")), None)
@@ -264,7 +284,7 @@ def build(day, base, hist):
         fig, ax = plt.subplots(figsize=(3.8, 4.9), dpi=100)
         ys = range(len(mv)); vals = [r["dod"] for r in mv]
         ax.barh(list(ys), vals, color=[GREEN if v > 0 else RED for v in vals], height=0.68)
-        ax.set_yticks(list(ys)); ax.set_yticklabels([r["ticker"] for r in mv], fontsize=7)
+        ax.set_yticks(list(ys)); ax.set_yticklabels([f'{r["ticker"]}  {short_name(names.get(r["ticker"], ""), 16)}'.strip() for r in mv], fontsize=6.4)
         for y, v in zip(ys, vals):
             ax.text(v, y, f" {v:+.1f}% " , va="center", ha="left" if v > 0 else "right", fontsize=6.5, color=INK)
         lim = max(abs(v) for v in vals) * 1.35; ax.set_xlim(-lim, lim); ax.axvline(0, color="#999", lw=0.6)
@@ -336,7 +356,7 @@ def build(day, base, hist):
         body = ""
         for r in rs:
             mark = "" if r["traded"] else '<sup class="nt">†</sup>'
-            body += (f'<tr class="{"nt-row" if not r["traded"] else ""}"><td class="tk">{r["ticker"]}{mark}</td><td>{r["fy"]}</td><td class="r b">{fnum(r["price"])}</td>'
+            body += (f'<tr class="{"nt-row" if not r["traded"] else ""}"><td class="tk">{r["ticker"]}{mark}<span class="cn">{html.escape(short_name(names.get(r["ticker"], "")))}</span></td><td>{r["fy"]}</td><td class="r b">{fnum(r["price"])}</td>'
                      f'<td class="r"{shade(r["dod"])}>{fnum(r["dod"],2,True)}</td><td class="r"{shade(r["wow"])}>{fnum(r["wow"],2,True)}</td>'
                      f'<td class="r"{shade(r["mom"])}>{fnum(r["mom"],2,True)}</td><td class="r"{shade(r["ytd"])}>{fnum(r["ytd"],2,True)}</td>'
                      f'<td class="r">{fnum(r["vol"],0)}</td><td class="r gb">{fnum(r["shares"],1)}</td><td class="r">{fnum(r["ne_fy"],0)}</td><td class="r">{fnum(r["ne_ttm"],0)}</td>'
@@ -458,10 +478,14 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True); ap.add_argument("--no-history-update", action="store_true")
     a = ap.parse_args()
     day = json.load(open(a.day)); base = json.load(open(a.baseline)); hist = json.load(open(a.history))
-    doc, foot = build(day, base, hist)
+    npath = os.path.join(os.path.dirname(os.path.abspath(a.baseline)), "names.json")
+    names = json.load(open(npath)) if os.path.exists(npath) else {}
+    doc, foot = build(day, base, hist, names)
     from name_guard import check_text
     check_text(doc, "the report")
     render_pdf(doc, foot, a.out)
     if not a.no_history_update:
         json.dump(update_history(hist, day), open(a.history, "w"), indent=1)
+        if day.get("names"):
+            names.update(day["names"]); json.dump(dict(sorted(names.items())), open(npath, "w"), indent=1, ensure_ascii=False)
     print("wrote", a.out)
