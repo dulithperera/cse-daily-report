@@ -1,0 +1,68 @@
+name: CSE Daily Stock Focus
+
+on:
+  schedule:
+    - cron: "15 11 * * 1-5"   # 4:45 PM Colombo (UTC+5:30), Monday–Friday
+  workflow_dispatch: {}        # "Run workflow" button for manual runs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Collect today's CSE data
+        id: collect
+        run: |
+          set +e
+          python collect_cse.py baseline.json day.json
+          code=$?
+          set -e
+          if [ "$code" = "10" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          exit $code
+
+      - name: Install report tools
+        if: steps.collect.outputs.skip != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-inter fonts-freefont-ttf poppler-utils
+          pip install -q matplotlib playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Build PDF
+        if: steps.collect.outputs.skip != 'true'
+        run: |
+          D=$(python -c "import json;print(json.load(open('day.json'))['date'])")
+          mkdir -p reports
+          python build_report.py --day day.json --baseline baseline.json --history history.json --out "reports/Daily_Stock_Focus-$D.pdf"
+          echo "PDF=reports/Daily_Stock_Focus-$D.pdf" >> "$GITHUB_ENV"
+          echo "DAY=$D" >> "$GITHUB_ENV"
+
+      - name: Email the report
+        if: steps.collect.outputs.skip != 'true'
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+        run: python send_email.py "$PDF" day.json
+
+      - name: Save report and history
+        if: steps.collect.outputs.skip != 'true'
+        run: |
+          git config user.name "cse-daily-report"
+          git config user.email "actions@users.noreply.github.com"
+          git add history.json reports/
+          git commit -m "Daily Stock Focus $DAY" || echo "nothing to commit"
+          git push
