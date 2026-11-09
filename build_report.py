@@ -17,30 +17,12 @@ Any missing market field is shown as "–" rather than guessed.
 """
 import argparse, json, math, io, os, subprocess, tempfile, html, datetime as dt
 import matplotlib
+import matplotlib.ticker
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 GREEN = "#6abf45"; ORANGE = "#ff8a3d"; RED = "#ff3b30"; INK = "#1d1d1f"; MUTED = "#6e6e73"
 
-SI = {  # Sinhala labels used in the weekly report
- "Stock": "සමාගම් සංකේතය", "FY": "මූල්‍ය වර්ෂ අවසානය", "Price": "මිල", "DoD": "දිනය තුළ", "WoW": "සතිය තුළ",
- "MoM": "මාසික", "YTD": "වසර තුළ", "Shares": "කොටස් ප්‍රමාණය", "NE": "ශුද්ධ ඉපැයීම් (රු. මි.)", "EPS": "කොටසක ඉපැයුම",
- "PER": "මිල ඉපැයුම් අනුපාතිකය", "PBV": "මිල පොත් අගය", "BVPS": "කොටසක පොත් අගය", "DPS": "ලාභාංශ", "YLD": "ලාභාංශ ඵලදාව",
- "ROE": "කොටස් මත ප්‍රතිලාභ", "VOL": "පරිමාව",
-}
-SECTOR_SI = {
- "Banks": "මූල්‍ය ක්ෂේත්‍රය - බැංකු", "Diversified Financials": "මූල්‍ය ක්ෂේත්‍රය - මූල්‍ය විවිධාංගීකරණ",
- "Insurance": "මූල්‍ය ක්ෂේත්‍රය - රක්ෂණ", "Real Estate": "මූල්‍ය ක්ෂේත්‍රය - දේපළ වෙළඳාම්",
- "Consumer Durables & Apparel": "පාරිභෝගික අභිමතික - කල්පවත්නා පාරිභෝගික භාණ්ඩ සහ ඇඟලුම්",
- "Retailing": "පාරිභෝගික අභිමතික - සිල්ලර වෙළඳාම", "Consumer Services": "පාරිභෝගික අභිමතික - පාරිභෝගික සේවා",
- "Automobiles & Components": "පාරිභෝගික අභිමතික - මෝටර් රථ වාහන සහ සංරචක",
- "Food, Beverage & Tobacco": "පාරිභෝගික ආහාර ද්‍රව්‍ය - ආහාර, බීම සහ දුම්කොළ",
- "Food & Staples Retailing": "පාරිභෝගික ආහාර ද්‍රව්‍ය - ආහාර සහ ආහාර ද්‍රව්‍ය සිල්ලර වෙළඳාම",
- "Household & Personal": "පාරිභෝගික ආහාර ද්‍රව්‍ය - ගෘහස්ථ සහ පෞද්ගලික", "Energy": "බලශක්ති",
- "Health Care Equipment & Services": "සෞඛ්‍ය ආරක්ෂණය - සෞඛ්‍ය ආරක්ෂණ උපකරණ සහ සේවා",
- "Capital Goods": "කර්මාන්ත - ප්‍රාග්ධන භාණ්ඩ", "Transportation": "කර්මාන්ත - ප්‍රවාහන", "Materials": "ද්‍රව්‍ය",
- "Telecommunication Services": "විදුලි සංදේශ සේවා", "Utilities": "උපයෝගිතා",
-}
 INDEX_NAME = {"Household & Personal": "Household & Personal Products"}
 
 
@@ -134,14 +116,9 @@ def build(day, base, hist):
     # ---- market metrics vs previous session
     def prev_val(k):
         return prev.get(k) if prev else None
-    rows = [("All Share Price Index", "සියලු කොටස් මිල දර්ශකය", "aspi", 2),
-            ("S&P SL 20 Index", "S&P SL 20 දර්ශකය", "sl20", 2),
-            ("Market PE (x)", "වෙළඳපොළ මිල ඉපැයුම් අනුපාතිකය", "pe", 2),
-            ("Market PBV (x)", "වෙළඳපොළ මිල පොත් අගය", "pbv", 2),
-            ("Market Capitalization Rs. Bn", "වෙළඳපොළ ප්‍රාග්ධනීකරණය රු. බි.", "mcap_bn", 2),
-            ("Turnover Rs. Mn", "දිනයේ මුළු පිරිවැටුම රු. මි.", "turnover_mn", 2),
-            ("Foreign Purchases Rs. Mn", "විදේශීය මිලදී ගැනීම් රු. මි.", "foreign_buy_mn", 2),
-            ("Foreign Sales Rs. Mn", "විදේශීය විකුණුම් රු. මි.", "foreign_sell_mn", 2)]
+    rows = [("All Share Price Index", "aspi", 2), ("S&P SL 20 Index", "sl20", 2), ("Market PE (x)", "pe", 2),
+            ("Market PBV (x)", "pbv", 2), ("Market cap LKR Bn", "mcap_bn", 2), ("Turnover LKR Mn", "turnover_mn", 2),
+            ("Foreign purchases LKR Mn", "foreign_buy_mn", 2), ("Foreign sales LKR Mn", "foreign_sell_mn", 2)]
     # turnover/foreign of a weekly-aggregate day are not comparable with one session
     def cmp_prev(k):
         if k in ("turnover_mn", "foreign_buy_mn", "foreign_sell_mn") and prev and prev.get("weekly_aggregate"):
@@ -244,28 +221,107 @@ def build(day, base, hist):
     if sec_sorted: sub += f'; {up_secs} of {len(sec_sorted)} sectors higher'
     if day.get("test"): sub = (day.get('test_label') or 'LAYOUT TEST — SYNTHETIC NUMBERS, NOT MARKET DATA') + ' · ' + sub
 
-    # ---- page 2 tables
+    # ---- page 2: market dashboard
+    def chip(v, suffix="%"):
+        if v is None: return '<span class="chip">–</span>'
+        return f'<span class="chip {cls(v)}">{fnum(v,2,True)}{suffix}</span>'
     mrows = "".join(
-        f'<tr><td>{en}<div class="si">{si}</div></td><td class="r">{fnum(m.get(k),d)}</td><td class="r">{fnum(cmp_prev(k),d)}</td>'
-        f'<td class="r {cls(pct(m.get(k),cmp_prev(k)))}">{(fnum(pct(m.get(k),cmp_prev(k)),2,True)+"%") if pct(m.get(k),cmp_prev(k)) is not None else "–"}</td></tr>'
-        for en, si, k, d in rows)
+        f'<tr><td>{en}</td><td class="r b">{fnum(m.get(k),d)}</td><td class="r muted">{fnum(cmp_prev(k),d)}</td>'
+        f'<td class="r">{chip(pct(m.get(k),cmp_prev(k)))}</td></tr>' for en, k, d in rows)
     if m.get("volume") is not None or m.get("trades") is not None:
-        mrows += f'<tr><td>Share volume / Trades<div class="si">කොටස් පරිමාව / ගනුදෙනු</div></td><td class="r" colspan="3">{fnum(m.get("volume"),0)} / {fnum(m.get("trades"),0)}</td></tr>'
-    if breadth:
-        mrows += f'<tr><td>Market breadth<div class="si">වෙළඳපොළ පළල</div></td><td class="r" colspan="3">{breadth}</td></tr>'
+        mrows += f'<tr><td>Share volume / Trades</td><td class="r b" colspan="3">{fnum(m.get("volume"),0)} / {fnum(m.get("trades"),0)}</td></tr>'
     rates = day.get("rates") or {k: v for k, v in base["rates_2026-11-06"].items() if k != "source"}
     rates_src = day.get("rates_source") or base["rates_2026-11-06"]["source"]
-    rate_rows = "".join(
-        f'<tr><td>{lbl}<div class="si">{si}</div></td><td class="r">{fnum(rates[k][0])}</td><td class="r">{fnum(rates[k][1])}</td><td class="r {cls(rates[k][0]-rates[k][1])}">{fnum(rates[k][0]-rates[k][1],2,True) if rates[k][0]!=rates[k][1] else "0.00"}</td></tr>'
-        for lbl, si, k in [("91 days", "දින 91", "tb91"), ("182 days", "දින 182", "tb182"), ("364 days", "දින 364", "tb364"),
-                           ("AWPR (Weekly)*", "බරිත සාමාන්‍ය ප්‍රමුඛ ණය පොලී අනුපාතය", "awpr"), ("AWFDR (Monthly)*", "බරිත සාමාන්‍ය තැන්පතු පොලී අනුපාතය", "awfdr")] if k in rates)
-    secrows = "".join(
-        f'<tr><td>{html.escape(r["name"])}</td><td class="r">{fnum(r["index"])}</td><td class="r">{fnum(r["prev"])}</td>'
-        f'<td class="r {cls(r["chg"])}">{(fnum(r["chg"],2,True)+"%") if r["chg"] is not None else "–"}</td>'
-        f'<td class="r">{fnum(r["pe"]) if r["pe"] else "–"}</td><td class="r">{fnum(r["pbv"]) if r["pbv"] else "–"}</td></tr>' for r in sec_rows)
 
-    def mover_rows(lst):
-        return "".join(f'<tr><td>{r["ticker"]}</td><td class="r">{fnum(r["price"])}</td><td class="r {cls(r["dod"])}">{fnum(r["dod"],2,True)}%</td><td class="muted">{html.escape(r["sector"])}</td></tr>' for r in lst) or '<tr><td colspan="4" class="muted">None</td></tr>'
+    # breadth donut
+    g_, l_, u_ = m.get("gainers"), m.get("losers"), m.get("unchanged")
+    if g_ is not None:
+        fig, ax = plt.subplots(figsize=(1.9, 1.9), dpi=100)
+        vals = [g_, l_ or 0, u_ or 0]
+        ax.pie(vals, colors=[GREEN, RED, "#c7c7cc"], startangle=90, counterclock=False,
+               wedgeprops=dict(width=0.32, edgecolor="white", linewidth=1.5))
+        ax.text(0, 0.08, f"{g_ / max(1, sum(vals)) * 100:.0f}%", ha="center", va="center", fontsize=15, fontweight="bold", color=INK)
+        ax.text(0, -0.22, "advancing", ha="center", va="center", fontsize=7, color=MUTED)
+        ax.set_aspect("equal"); c_breadth = svg(fig)
+    else:
+        c_breadth = '<p class="muted">Breadth not captured.</p>'
+
+    # foreign buy vs sell
+    fb, fs = m.get("foreign_buy_mn"), m.get("foreign_sell_mn")
+    if fb is not None and fs is not None:
+        fig, ax = plt.subplots(figsize=(3.0, 1.05), dpi=100)
+        ax.barh([1, 0], [fb, fs], color=[GREEN, RED], height=0.55)
+        for y, v in ((1, fb), (0, fs)):
+            ax.text(v, y, f"  {v:,.1f}", va="center", fontsize=7.5, fontweight="bold", color=INK)
+        ax.set_yticks([1, 0]); ax.set_yticklabels(["Bought", "Sold"]); ax.set_xlim(0, max(fb, fs) * 1.3 or 1)
+        style_ax(ax); ax.grid(False); ax.set_xticks([]); c_foreign = svg(fig)
+    else:
+        c_foreign = '<p class="muted small">Foreign buying and selling not yet published by the CSE.</p>'
+
+    # top movers diverging bars
+    mv = sorted(gainers[:8] + losers[:8], key=lambda r: r["dod"])
+    if mv:
+        fig, ax = plt.subplots(figsize=(3.8, 4.9), dpi=100)
+        ys = range(len(mv)); vals = [r["dod"] for r in mv]
+        ax.barh(list(ys), vals, color=[GREEN if v > 0 else RED for v in vals], height=0.68)
+        ax.set_yticks(list(ys)); ax.set_yticklabels([r["ticker"] for r in mv], fontsize=7)
+        for y, v in zip(ys, vals):
+            ax.text(v, y, f" {v:+.1f}% " , va="center", ha="left" if v > 0 else "right", fontsize=6.5, color=INK)
+        lim = max(abs(v) for v in vals) * 1.35; ax.set_xlim(-lim, lim); ax.axvline(0, color="#999", lw=0.6)
+        style_ax(ax); ax.grid(axis="x", color="#eee", lw=0.6); ax.grid(axis="y", visible=False)
+        ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:+.0f}%"))
+        c_movers = svg(fig)
+    else:
+        c_movers = '<p class="muted">No covered stock moved today.</p>'
+
+    # sector heatmap tiles
+    def heat(v):
+        if v is None: return "background:#f2f2f4"
+        a = min(abs(v) / 3, 1) * 0.75 + 0.12
+        rgb = "106,191,69" if v >= 0 else "255,59,48"
+        return f"background:rgba({rgb},{a:.2f})"
+    tiles2 = "".join(
+        f'<div class="ht" style="{heat(r["chg"])}"><div class="hn">{html.escape(r["name"])}</div>'
+        f'<div class="hv">{(fnum(r["chg"],2,True)+"%") if r["chg"] is not None else "–"}</div><div class="hi">{fnum(r["index"])}</div></div>'
+        for r in sorted(sec_rows, key=lambda r: -(r["chg"] if r["chg"] is not None else -999)))
+
+    # index performance: day / week / month / YTD, grouped bars
+    def idx_change(key, cutoff):
+        v, _ = market_on_or_before(session_days, cutoff, key)
+        return pct(m.get(key), v)
+    d30m = (dt.date.fromisoformat(D) - dt.timedelta(days=30)).isoformat()
+    perf = {"Day": (aspi_d, sl_d), "Week": (idx_change("aspi", d7), idx_change("sl20", d7)),
+            "Month": (idx_change("aspi", d30m), idx_change("sl20", d30m)), "YTD": (aspi_ytd, sl20_ytd)}
+    fig, ax = plt.subplots(figsize=(3.8, 2.2), dpi=100)
+    xs = list(range(len(perf))); w = 0.36
+    for i, (lab, col) in enumerate((("ASPI", ORANGE), ("S&P SL20", "#2f7fbf"))):
+        vals = [perf[k][i] if perf[k][i] is not None else 0 for k in perf]
+        bars = ax.bar([x + (i - 0.5) * w for x in xs], vals, width=w, color=col, label=lab)
+        for x, (k, v) in zip(xs, perf.items()):
+            v = v[i]
+            if v is None:
+                ax.text(x + (i - 0.5) * w, 0, "n/a", ha="center", va="bottom", fontsize=5.5, color=MUTED); continue
+            ax.text(x + (i - 0.5) * w, v, f"{v:+.1f}", ha="center", va="bottom" if v >= 0 else "top", fontsize=6.3, color=INK)
+    ax.set_xticks(xs); ax.set_xticklabels(list(perf)); ax.axhline(0, color="#999", lw=0.6)
+    ax.legend(fontsize=6.5, frameon=False, loc="lower left", ncol=2)
+    lo, hi = ax.get_ylim(); ax.set_ylim(lo - (hi - lo) * 0.12, hi + (hi - lo) * 0.12)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda y, _: f"{y:.0f}%"))
+    style_ax(ax); c_perf = svg(fig)
+
+    # T-bill yield curve
+    tb = [k for k in ("tb91", "tb182", "tb364") if k in rates]
+    fig, ax = plt.subplots(figsize=(2.4, 1.7), dpi=100)
+    lab = {"tb91": "91d", "tb182": "182d", "tb364": "364d"}
+    ax.plot([lab[k] for k in tb], [rates[k][1] for k in tb], "--o", color="#b0b0b5", ms=3, lw=1, label="Previous")
+    ax.plot([lab[k] for k in tb], [rates[k][0] for k in tb], "-o", color="#7a4fbf", ms=4, lw=1.8, label="Latest")
+    for k in tb: ax.annotate(f"{rates[k][0]:.2f}", (lab[k], rates[k][0]), xytext=(0, 5), textcoords="offset points", ha="center", fontsize=6.5, fontweight="bold")
+    ax.legend(fontsize=6, frameon=False, loc="lower right"); ys_ = [rates[k][j] for k in tb for j in (0, 1)]
+    ax.set_ylim(min(ys_) - 0.25, max(ys_) + 0.45); style_ax(ax); c_curve = svg(fig)
+    def rate_chip(label, k):
+        if k not in rates: return ""
+        a, b = rates[k]; d_ = a - b
+        return f'<div class="rc"><span>{label}</span><b>{a:.2f}%</b><span class="chip {cls(d_)}">{d_:+.2f}</span></div>'
+    rate_chips = rate_chip("AWPR (weekly)", "awpr") + rate_chip("AWFDR (monthly)", "awfdr")
 
     # ---- sector stock pages
     order = base["sectors"]
@@ -293,24 +349,24 @@ def build(day, base, hist):
         sector_blocks.append(f'''
 <section class="sec">
  <div class="sechead">
-  <div><div class="grp">{g}</div><div class="sname">{html.escape(sec)} <span class="si">{SECTOR_SI.get(sec,"")}</span></div></div>
+  <div><div class="grp">{g}</div><div class="sname">{html.escape(sec)}</div></div>
   <div class="secstats">
-   <div><b>{fnum(sr["index"]) if sr else "–"}</b><span>SECTOR INDEX<br><i>ආංශික දර්ශකය</i></span></div>
-   <div><b class="{cls(sr["chg"]) if sr else ""}">{(fnum(sr["chg"],2,True)+"%") if sr and sr["chg"] is not None else "–"}</b><span>DOD CHANGE<br><i>දෛනික වෙනස්වීම</i></span></div>
-   <div><b>{(fnum(sr["pe"])+"x") if sr and sr["pe"] else "–"}</b><span>CSE SECTOR PE<br><i>ආංශික මිල ඉපැයුම් අනුපාතය</i></span></div>
-   <div><b>{(fnum(sr["pbv"])+"x") if sr and sr["pbv"] else "–"}</b><span>CSE SECTOR PBV<br><i>ආංශික මිල පොත් අගය</i></span></div>
+   <div><b>{fnum(sr["index"]) if sr else "–"}</b><span>SECTOR INDEX</span></div>
+   <div><b class="{cls(sr["chg"]) if sr else ""}">{(fnum(sr["chg"],2,True)+"%") if sr and sr["chg"] is not None else "–"}</b><span>DOD CHANGE</span></div>
+   <div><b>{(fnum(sr["pe"])+"x") if sr and sr["pe"] else "–"}</b><span>CSE SECTOR PE</span></div>
+   <div><b>{(fnum(sr["pbv"])+"x") if sr and sr["pbv"] else "–"}</b><span>CSE SECTOR PBV</span></div>
   </div>
  </div>
  <table class="stk">
   <thead><tr>
-   <th>Stock<div class="si">{SI["Stock"]}</div></th><th>FY<div class="si">{SI["FY"]}</div></th><th>Price LKR<div class="si">{SI["Price"]}</div></th>
-   <th>DoD %<div class="si">{SI["DoD"]}</div></th><th>WoW %<div class="si">{SI["WoW"]}</div></th><th>MoM %<div class="si">{SI["MoM"]}</div></th><th>YTD %<div class="si">{SI["YTD"]}</div></th>
-   <th>Volume<div class="si">{SI["VOL"]}</div></th><th>Shares Mn<div class="si">{SI["Shares"]}</div></th>
-   <th>Net earn. {fy_lbl}<div class="si">{SI["NE"]}</div></th><th>Net earn. TTM<div class="si">{SI["NE"]}</div></th>
-   <th>EPS {fy_lbl}<div class="si">{SI["EPS"]}</div></th><th>EPS TTM<div class="si">{SI["EPS"]}</div></th>
-   <th>PER {fy_lbl}<div class="si">{SI["PER"]}</div></th><th>PER TTM<div class="si">{SI["PER"]}</div></th>
-   <th>PBV x<div class="si">{SI["PBV"]}</div></th><th>BVPS LKR<div class="si">{SI["BVPS"]}</div></th><th>DPS last FY<div class="si">{SI["DPS"]}</div></th>
-   <th>Div. yield %<div class="si">{SI["YLD"]}</div></th><th>ROE %<div class="si">{SI["ROE"]}</div></th>
+   <th>Stock</th><th>FY</th><th>Price LKR</th>
+   <th>DoD %</th><th>WoW %</th><th>MoM %</th><th>YTD %</th>
+   <th>Volume</th><th>Shares Mn</th>
+   <th>Net earn. {fy_lbl}</th><th>Net earn. TTM</th>
+   <th>EPS {fy_lbl}</th><th>EPS TTM</th>
+   <th>PER {fy_lbl}</th><th>PER TTM</th>
+   <th>PBV x</th><th>BVPS LKR</th><th>DPS last FY</th>
+   <th>Div. yield %</th><th>ROE %</th>
   </tr></thead><tbody>{body}</tbody></table>
  <div class="note">{html.escape(notes)}</div>
 </section>''')
@@ -334,36 +390,27 @@ def build(day, base, hist):
  </div>
 </div>
 
-<div class="page">
- <div class="three">
-  <div>
-   <h2>Market Performance <span class="si">වෙළඳපොළ ක්‍රියාකාරිත්වය</span></h2>
-   <table class="mt"><thead><tr><th>METRIC</th><th class="r">{dt.date.fromisoformat(D).strftime("%-d %b").upper()}<br>{D[:4]}</th><th class="r">{prev_txt.upper()}</th><th class="r">CHANGE</th></tr></thead><tbody>{mrows}</tbody></table>
-  </div>
-  <div>
-   <h2>Year to date Market Performance <span class="si">වර්ෂ ආරම්භයේ සිට වර්තමානය දක්වා වෙළඳපොළ ක්‍රියාකාරිත්වය</span></h2>
-   <table class="mt"><tbody>
-    <tr><td>Change in ASPI<div class="si">සියලු කොටස් මිල දර්ශකයේ වෙනස්වීම</div></td><td class="r {cls(aspi_ytd)}">{fnum(aspi_ytd,2,True)}%</td></tr>
-    <tr><td>Change in S&amp;P SL 20<div class="si">S&amp;P SL 20 මිල දර්ශකයේ වෙනස්වීම</div></td><td class="r {cls(sl20_ytd)}">{fnum(sl20_ytd,2,True)}%</td></tr>
-    <tr><td>Total Turnover Rs. Mn<div class="si">මුළු පිරිවැටුම රු. මි.</div></td><td class="r">{fnum(ytd_turn)}</td></tr>
-    <tr><td>Net Foreign Purchase /(Sales) Rs. Mn<div class="si">ශුද්ධ විදේශීය මිලදී ගැනීම් / (විකුණුම්) රු. මි.</div></td><td class="r {cls(ytd_nf)}">{fnum(ytd_nf)}</td></tr>
-   </tbody></table>
-   <h2>Economic Indicators <span class="si">ආර්ථික දර්ශක</span></h2>
-   <table class="mt"><thead><tr><th>RATE %</th><th class="r">LATEST</th><th class="r">PREVIOUS</th><th class="r">CHANGE</th></tr></thead><tbody>{rate_rows}</tbody></table>
-   <p class="note">*{html.escape(rates_src)}. Rates update weekly/monthly, not daily. Sector PE/PBV are not published daily by the CSE and show as –.</p>
-   <h2>Top movers <span class="si">වැඩිම වෙනස්වීම්</span></h2>
-   <div class="two"><table class="mt sm"><thead><tr><th colspan="4">Gainers (covered stocks)</th></tr></thead><tbody>{mover_rows(gainers)}</tbody></table>
-   <table class="mt sm"><thead><tr><th colspan="4">Losers (covered stocks)</th></tr></thead><tbody>{mover_rows(losers)}</tbody></table></div>
-  </div>
-  <div>
-   <h2>Industry groups <span class="si">ආංශික දර්ශක</span></h2>
-   <table class="mt"><thead><tr><th>CSE GICS GROUP</th><th class="r">INDEX</th><th class="r">PREV.</th><th class="r">DOD</th><th class="r">PE</th><th class="r">PBV</th></tr></thead><tbody>{secrows}</tbody></table>
-  </div>
+<div class="page p2">
+ <div class="dash">
+  <div class="card"><h3>Market performance</h3><p class="cs">Today vs previous session ({prev_txt})</p>
+   <table class="mt"><thead><tr><th>Metric</th><th class="r">Today</th><th class="r">Prev.</th><th class="r">Change</th></tr></thead><tbody>{mrows}</tbody></table></div>
+  <div class="card"><h3>Market breadth &amp; foreign flow</h3><p class="cs">{(str(g_) + " up · " + str(l_) + " down · " + str(u_) + " unchanged") if g_ is not None else ""}</p>
+   <div class="bf"><div class="donut">{c_breadth}<div class="lg"><i class="sw g"></i>Up <i class="sw r"></i>Down <i class="sw n"></i>Flat</div></div>
+   <div class="ff"><div class="cs b">Foreign trading, LKR Mn</div>{c_foreign}<div class="nfv">Net: <b class="{cls(nf)}">{fnum(nf)}</b></div></div></div></div>
+  <div class="card r2"><h3>Top movers today</h3><p class="cs">Biggest day-on-day moves among covered stocks</p>{c_movers}</div>
+  <div class="card"><h3>Index performance</h3><p class="cs">% change over each period</p>{c_perf}</div>
+  <div class="card"><h3>Rates</h3><p class="cs">T-bill yields, latest weekly auction</p><div class="rates">{c_curve}<div class="rcs">{rate_chips}</div></div>
+   <div class="ytd"><div><span>YTD turnover</span><b>LKR {fnum(ytd_turn,0)} Mn</b></div><div><span>YTD net foreign</span><b class="{cls(ytd_nf)}">LKR {fnum(ytd_nf,0)} Mn</b></div></div></div>
+  <div class="card wide"><h3>Sector heatmap</h3><p class="cs">CSE GICS industry groups, ranked by today's change; tile shows change and index level</p><div class="heat">{tiles2}</div></div>
  </div>
- <p class="legend">Price-change cells shaded by size of rise / fall · Bar in PER TTM and ROE cells = value relative to the highest in the sector · n.m. = not meaningful · – = nil · † = not traded today (last close shown)</p>
+ <p class="note">*{html.escape(rates_src)}. Rates update weekly or monthly, not daily.</p>
+</div>
+
+<div class="page">
+ <p class="legend">Price-change cells shaded by size of rise / fall · Bar in PER TTM and ROE cells = value relative to the highest in the sector · n.m. = not meaningful · – = nil · † = not traded today (last close shown) · Sector PE/PBV are not published daily by the CSE.</p>
  {"".join(sector_blocks)}
  <section class="sec closing">
-  <div class="hero small"><div><h1>Sources, method &amp; disclaimer</h1><p>Source: CSE / මූලාශ්‍රය: කොළඹ කොටස් වෙළඳපොළ</p></div></div>
+  <div class="hero small"><div><h1>Sources, method &amp; disclaimer</h1><p>Source: Colombo Stock Exchange (cse.lk)</p></div></div>
   <p><b>Prices, indices, turnover and foreign flows:</b> Colombo Stock Exchange (cse.lk), captured after the close on {date_txt}.
   <b>Earnings, shares, book value and dividends:</b> {html.escape(base["source"])}; these change only when companies report, so P/E, P/B, dividend yield are recalculated daily from today's price against those figures.
   <b>Rates:</b> {html.escape(rates_src)}.</p>

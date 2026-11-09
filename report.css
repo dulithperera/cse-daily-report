@@ -78,3 +78,33 @@ table.stk tr { break-inside: avoid; }
 .st2 .lh { width: 50%; display: flex; justify-content: flex-end; align-items: center; border-right: 1px solid #aaa; height: 100%; }
 .st2 .rh { width: 50%; display: flex; align-items: center; }
 .lh .bv { margin: 0 3px 0 0; }
+
+/* page 2 dashboard */
+.p2 { height: 188mm; overflow: hidden; }
+.dash { display: grid; grid-template-columns: 1.05fr 1fr 1fr; grid-template-rows: 63mm 60mm 52mm; gap: 7px; }
+.dash .card { display: flex; flex-direction: column; }
+.dash .card.r2 { grid-column: 3; grid-row: 1 / span 2; }
+.dash .card.wide { grid-column: 1 / span 3; }
+.dash .card svg { max-height: none; }
+.dash .card.r2 svg { flex: 1; max-height: 112mm; }
+.chip { display: inline-block; border-radius: 8px; padding: 0.5px 5px; background: #ececf0; font-weight: 700; font-size: 6.8px; }
+.chip.pos { background: #dff3d4; color: #2f7d17; } .chip.neg { background: #ffe0de; color: #c4261b; }
+.dash .mt td { padding: 2.6px 3px; font-size: 7.3px; }
+.bf { display: flex; gap: 6px; align-items: center; flex: 1; }
+.donut { width: 44%; text-align: center; } .donut svg { width: 100%; }
+.lg { font-size: 6.5px; color: #6e6e73; } .sw { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin: 0 2px 0 5px; vertical-align: -1px; }
+.sw.g { background: #6abf45; } .sw.r { background: #ff3b30; } .sw.n { background: #c7c7cc; }
+.ff { width: 56%; } .ff svg { width: 100%; } .cs.b { font-weight: 700; color: #3a3a3c; }
+.nfv { font-size: 8px; margin-top: 2px; } .nfv b { font-size: 10px; }
+.small { font-size: 7px; }
+.rates { display: flex; gap: 6px; align-items: center; } .rates svg { width: 60%; }
+.rcs { display: flex; flex-direction: column; gap: 6px; width: 40%; }
+.rc { background: #f5f3fb; border-radius: 6px; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; }
+.rc span:first-child { font-size: 6.5px; color: #6e6e73; font-weight: 700; } .rc b { font-size: 12px; color: #4a2f8f; }
+.ytd { display: flex; gap: 6px; margin-top: auto; }
+.ytd div { flex: 1; background: #f2f2f4; border-radius: 6px; padding: 4px 7px; display: flex; flex-direction: column; }
+.ytd span { font-size: 6.5px; color: #6e6e73; font-weight: 700; } .ytd b { font-size: 9.5px; }
+.heat { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; flex: 1; }
+.ht { border-radius: 5px; padding: 4px 5px; display: flex; flex-direction: column; justify-content: space-between; }
+.hn { font-size: 6.4px; font-weight: 700; line-height: 1.15; color: #1d1d1f; }
+.hv { font-size: 11px; font-weight: 800; color: #1d1d1f; } .hi { font-size: 6.2px; color: #3a3a3c; }
