@@ -45,8 +45,8 @@ def cls(v):
 def shade(v):
     """Background tint for price-change cells, scaled by size of move."""
     if v is None or v == 0: return ""
-    a = min(abs(v) / 10, 1) * 0.35 + 0.05
-    rgb = "106,191,69" if v > 0 else "255,59,48"
+    a = min(abs(v) / 10, 1) * 0.28 + 0.06
+    rgb = "76,160,60" if v > 0 else "214,69,58"
     return f' style="background:rgba({rgb},{a:.2f})"'
 
 
@@ -336,14 +336,14 @@ def build(day, base, hist):
         body = ""
         for r in rs:
             mark = "" if r["traded"] else '<sup class="nt">†</sup>'
-            body += (f'<tr><td class="tk">{r["ticker"]}{mark}</td><td>{r["fy"]}</td><td class="r b">{fnum(r["price"])}</td>'
+            body += (f'<tr class="{"nt-row" if not r["traded"] else ""}"><td class="tk">{r["ticker"]}{mark}</td><td>{r["fy"]}</td><td class="r b">{fnum(r["price"])}</td>'
                      f'<td class="r"{shade(r["dod"])}>{fnum(r["dod"],2,True)}</td><td class="r"{shade(r["wow"])}>{fnum(r["wow"],2,True)}</td>'
                      f'<td class="r"{shade(r["mom"])}>{fnum(r["mom"],2,True)}</td><td class="r"{shade(r["ytd"])}>{fnum(r["ytd"],2,True)}</td>'
-                     f'<td class="r">{fnum(r["vol"],0)}</td><td class="r">{fnum(r["shares"],1)}</td><td class="r">{fnum(r["ne_fy"],0)}</td><td class="r">{fnum(r["ne_ttm"],0)}</td>'
+                     f'<td class="r">{fnum(r["vol"],0)}</td><td class="r gb">{fnum(r["shares"],1)}</td><td class="r">{fnum(r["ne_fy"],0)}</td><td class="r">{fnum(r["ne_ttm"],0)}</td>'
                      f'<td class="r">{fnum(r["eps_fy"])}</td><td class="r">{fnum(r["eps_ttm"])}</td>'
-                     f'<td class="r">{fnum(r["per_fy"]) if r["per_fy"] else "n.m."}</td>'
+                     f'<td class="r gb">{fnum(r["per_fy"]) if r["per_fy"] else "n.m."}</td>'
                      f'<td class="r barcell"><span class="ib" style="width:{(r["per_ttm"] or 0)/max_per*100:.0f}%"></span>{fnum(r["per_ttm"]) if r["per_ttm"] else "n.m."}</td>'
-                     f'<td class="r">{fnum(r["pbv"])}</td><td class="r">{fnum(r["bvps"])}</td><td class="r">{fnum(r["dps"])}</td><td class="r">{fnum(r["yld"])}</td>'
+                     f'<td class="r">{fnum(r["pbv"])}</td><td class="r">{fnum(r["bvps"])}</td><td class="r gb">{fnum(r["dps"])}</td><td class="r">{fnum(r["yld"])}</td>'
                      f'<td class="r barcell"><span class="ib" style="width:{(r["roe"] or 0)/max_roe*100:.0f}%"></span>{fnum(r["roe"]) if r["roe"] else "n.m."}</td></tr>')
         notes = " · ".join(base["notes"].get(sec, ["TTM : Trailing Twelve Months"]))
         sector_blocks.append(f'''
@@ -358,7 +358,7 @@ def build(day, base, hist):
   </div>
  </div>
  <table class="stk">
-  <thead><tr>
+  <thead><tr class="grp-row"><th colspan="2"></th><th colspan="6">Price &amp; performance</th><th colspan="5">Earnings</th><th colspan="4">Valuation</th><th colspan="3">Dividend &amp; return</th></tr><tr>
    <th>Stock</th><th>FY</th><th>Price LKR</th>
    <th>DoD %</th><th>WoW %</th><th>MoM %</th><th>YTD %</th>
    <th>Volume</th><th>Shares Mn</th>
@@ -411,12 +411,14 @@ def build(day, base, hist):
  {"".join(sector_blocks)}
  <section class="sec closing">
   <div class="hero small"><div><h1>Sources, method &amp; disclaimer</h1><p>Source: Colombo Stock Exchange (cse.lk)</p></div></div>
-  <p><b>Prices, indices, turnover and foreign flows:</b> Colombo Stock Exchange (cse.lk), captured after the close on {date_txt}.
-  <b>Earnings, shares, book value and dividends:</b> {html.escape(base["source"])}; these change only when companies report, so P/E, P/B, dividend yield are recalculated daily from today's price against those figures.
-  <b>Rates:</b> {html.escape(rates_src)}.</p>
-  <p><b>Reference closes:</b> DoD vs previous session ({prev_txt}); WoW vs close on {wk_ref}; MoM vs close on {mo_ref}; YTD vs implied 2025 year-end close.
-  {("<b>Not traded today:</b> " + ", ".join(untraded) + ".") if untraded else ""}</p>
-  <p class="muted">Disclaimer: This report is compiled automatically for personal use from publicly available data. It has not been independently verified and may contain errors. It is not an offer or solicitation to buy or sell any security, and is not investment advice.</p>
+  <div class="info">
+   <div class="ib2"><h4>Market data</h4><p>Prices, indices, turnover and foreign flows from the Colombo Stock Exchange (cse.lk), captured after the close on {date_txt}.</p></div>
+   <div class="ib2"><h4>Company fundamentals</h4><p>{html.escape(base["source"])}. These change only when companies report, so P/E, P/B and dividend yield are recalculated daily from the closing price.</p></div>
+   <div class="ib2"><h4>Interest rates</h4><p>{html.escape(rates_src)}. T-bill, AWPR and AWFDR figures update weekly or monthly, not daily.</p></div>
+   <div class="ib2"><h4>Reference closes</h4><p>DoD vs previous session ({prev_txt}) · WoW vs {wk_ref} · MoM vs {mo_ref} · YTD vs implied 2025 year-end close.</p></div>
+   <div class="ib2 wide2"><h4>Not traded today</h4><p>{(", ".join(untraded) + ". Last close shown, marked †.") if untraded else "Every covered stock traded today."}</p></div>
+  </div>
+  <p class="disc">Disclaimer: This report is compiled automatically for personal use from publicly available data. It has not been independently verified and may contain errors. It is not an offer or solicitation to buy or sell any security, and is not investment advice.</p>
  </section>
 </div>
 </body></html>'''
