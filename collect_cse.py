@@ -11,10 +11,20 @@ COLOMBO = dt.timezone(dt.timedelta(hours=5, minutes=30))
 NAME = {"Real Estate Management&Development": "Real Estate"}
 
 
-def post(endpoint):
-    req = urllib.request.Request(BASE + endpoint, data=b"", headers=HEADERS, method="POST")
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.loads(r.read().decode("utf-8"))
+def post(endpoint, tries=3):
+    """Returns parsed JSON, or None if the CSE sends an empty/invalid body (it does between sessions)."""
+    import time
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(BASE + endpoint, data=b"", headers=HEADERS, method="POST")
+            with urllib.request.urlopen(req, timeout=60) as r:
+                body = r.read().decode("utf-8").strip()
+            if body:
+                return json.loads(body)
+        except (ValueError, OSError):
+            pass
+        time.sleep(3 * (i + 1))
+    return None
 
 
 def colombo_date(ms):
@@ -24,8 +34,8 @@ def colombo_date(ms):
 def main(baseline_path, out_path, history_path="history.json"):
     want = {s["ticker"] for s in json.load(open(baseline_path))["stocks"]}
     today = dt.datetime.now(COLOMBO).date().isoformat()
-    status = post("marketStatus"); daily = post("dailyMarketSummery"); sectors = post("allSectors")
-    trades = post("tradeSummary"); aspi = post("aspiData"); snp = post("snpData")
+    status = post("marketStatus") or {}; daily = post("dailyMarketSummery") or []; sectors = post("allSectors") or []
+    trades = post("tradeSummary") or {}; aspi = post("aspiData") or {}; snp = post("snpData") or {}
 
     ts = trades.get("reqTradeSummery") or []
     stamped = [x for x in ts if x.get("lastTradedTime")]
@@ -49,6 +59,10 @@ def main(baseline_path, out_path, history_path="history.json"):
     rows = [r for grp in daily for r in (grp if isinstance(grp, list) else [grp])]
     d = next((r for r in rows if colombo_date(r["tradeDate"]) == today), None)
 
+    # Index closes: prefer the CSE's official daily summary, then the sector feed, then the live index feed.
+    idx = {s["name"]: s.get("indexValue") for s in sectors}
+    aspi_v = (d or {}).get("asi") or idx.get("ALL SHARE PRICE INDEX") or aspi.get("value")
+    sl20_v = (d or {}).get("spp") or idx.get("S&P SL20") or snp.get("value")
     sec = {}
     for s in sectors:
         if s["name"] in ("S&P SL20", "ALL SHARE PRICE INDEX"):
@@ -68,7 +82,7 @@ def main(baseline_path, out_path, history_path="history.json"):
     names = {x["symbol"][:-4]: x["name"] for x in ts if x.get("name") and x["symbol"][:-4] in want}
 
     market = {
-        "aspi": aspi["value"], "sl20": snp["value"],
+        "aspi": aspi_v, "sl20": sl20_v,
         "gainers": sum(1 for x in traded if x["change"] > 0),
         "losers": sum(1 for x in traded if x["change"] < 0),
         "unchanged": sum(1 for x in traded if x["change"] == 0),
