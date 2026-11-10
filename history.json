@@ -485,6 +485,20 @@
    "foreign_buy_mn": 101.96,
    "foreign_sell_mn": 893.84,
    "weekly_aggregate": true
+  },
+  {
+   "date": "2026-11-09",
+   "aspi": 21531.37,
+   "sl20": 6143.15,
+   "pe": 11.1,
+   "pbv": 1.3,
+   "mcap_bn": 7738.05773832,
+   "turnover_mn": 3334.67162,
+   "foreign_buy_mn": 16.785716,
+   "foreign_sell_mn": 79.912648,
+   "sectors": {},
+   "prices": {},
+   "note": "market totals only; per-stock data not captured"
   }
  ],
  "ytd_base": {

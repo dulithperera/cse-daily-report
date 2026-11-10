@@ -465,6 +465,9 @@ def update_history(hist, day):
     entry = {"date": day["date"], **{k: m.get(k) for k in ("aspi", "sl20", "pe", "pbv", "mcap_bn", "turnover_mn", "foreign_buy_mn", "foreign_sell_mn")},
              "sectors": {k: v.get("index") for k, v in day.get("sectors", {}).items() if v.get("index") is not None},
              "prices": {t: q["close"] for t, q in day.get("prices", {}).items() if q.get("close") is not None}}
+    prior = [d for d in hist["days"] if d["date"] < day["date"] and not d.get("approx_month_ago")]
+    if prior and not prior[-1].get("prices"):
+        prior[-1]["prices"] = {t: q["prev_close"] for t, q in day.get("prices", {}).items() if q.get("prev_close")}
     hist["days"] = [d for d in hist["days"] if d["date"] != day["date"]] + [entry]
     hist["days"].sort(key=lambda d: d["date"])
     # keep ~6 months of sessions to stay small
