@@ -21,17 +21,30 @@ def colombo_date(ms):
     return dt.datetime.fromtimestamp(ms / 1000, COLOMBO).date().isoformat()
 
 
-def main(baseline_path, out_path):
+def main(baseline_path, out_path, history_path="history.json"):
     want = {s["ticker"] for s in json.load(open(baseline_path))["stocks"]}
     today = dt.datetime.now(COLOMBO).date().isoformat()
     status = post("marketStatus"); daily = post("dailyMarketSummery"); sectors = post("allSectors")
     trades = post("tradeSummary"); aspi = post("aspiData"); snp = post("snpData")
 
     ts = trades.get("reqTradeSummery") or []
-    traded = [x for x in ts if x.get("lastTradedTime") and colombo_date(x["lastTradedTime"]) == today]
-    if not traded:
-        print(f"No trading on {today} (market status: {status.get('status')}). Nothing to build.")
-        return 10
+    stamped = [x for x in ts if x.get("lastTradedTime")]
+    if not stamped:
+        print("CSE returned no trades at all. Nothing to build."); return 10
+    # The session to report is the latest day that actually traded, not the clock date,
+    # so a run that GitHub starts late (even the next morning) still reports the right day.
+    session = max(colombo_date(x["lastTradedTime"]) for x in stamped)
+    market_status = status.get("status") or ""
+    if session == today and "closed" not in market_status.lower():
+        print(f"Market is still trading ({market_status}); not building an intraday report."); return 10
+    try:
+        done = {d["date"] for d in json.load(open(history_path))["days"]}
+    except (OSError, ValueError, KeyError):
+        done = set()
+    if session in done:
+        print(f"Latest session {session} is already reported (today {today}: {market_status}). Nothing to build."); return 10
+    today = session
+    traded = [x for x in stamped if colombo_date(x["lastTradedTime"]) == session]
 
     rows = [r for grp in daily for r in (grp if isinstance(grp, list) else [grp])]
     d = next((r for r in rows if colombo_date(r["tradeDate"]) == today), None)
@@ -75,4 +88,5 @@ def main(baseline_path, out_path):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "baseline.json", sys.argv[2] if len(sys.argv) > 2 else "day.json"))
+    a = sys.argv[1:]
+    sys.exit(main(a[0] if a else "baseline.json", a[1] if len(a) > 1 else "day.json", a[2] if len(a) > 2 else "history.json"))

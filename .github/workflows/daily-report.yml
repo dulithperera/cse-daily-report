@@ -2,7 +2,12 @@ name: CSE Daily Stock Focus
 
 on:
   schedule:
-    - cron: "15 11 * * 1-5"   # 4:45 PM Colombo (UTC+5:30), Monday–Friday
+    # Several slots in case GitHub starts one late or drops it. The first run after the close
+    # builds the report; later runs see the session is already done and stop silently.
+    - cron: "15 11 * * 1-5"   # 4:45 PM Colombo
+    - cron: "45 12 * * 1-5"   # 6:15 PM Colombo
+    - cron: "40 14 * * 1-5"   # 8:10 PM Colombo
+    - cron: "20 0 * * 2-6"    # 5:50 AM Colombo next day (catch-up)
   workflow_dispatch: {}        # "Run workflow" button for manual runs
 
 permissions:
@@ -27,7 +32,7 @@ jobs:
         id: collect
         run: |
           set +e
-          python collect_cse.py baseline.json day.json
+          python collect_cse.py baseline.json day.json history.json
           code=$?
           set -e
           if [ "$code" = "10" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
