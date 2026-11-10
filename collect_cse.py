@@ -1,6 +1,7 @@
 """Collect today's CSE market data from cse.lk's own data feeds and write day.json for build_report.py.
 
-Exit codes: 0 = day.json written, 10 = no trading today (holiday / Poya), 1 = error.
+Exit codes: 0 = day.json written, 10 = nothing to do (holiday / Poya / already reported),
+20 = a trading day could not be reported (reason written to alert.txt), 1 = error.
 """
 import json, sys, datetime as dt, urllib.request
 
@@ -31,32 +32,44 @@ def colombo_date(ms):
     return dt.datetime.fromtimestamp(ms / 1000, COLOMBO).date().isoformat()
 
 
+def alert(text):
+    open("alert.txt", "w").write(text)
+    print("ALERT:", text)
+    return 20
+
+
 def main(baseline_path, out_path, history_path="history.json"):
     want = {s["ticker"] for s in json.load(open(baseline_path))["stocks"]}
     today = dt.datetime.now(COLOMBO).date().isoformat()
     status = post("marketStatus") or {}; daily = post("dailyMarketSummery") or []; sectors = post("allSectors") or []
     trades = post("tradeSummary") or {}; aspi = post("aspiData") or {}; snp = post("snpData") or {}
 
+    try:
+        done = {d["date"] for d in json.load(open(history_path))["days"]}
+    except (OSError, ValueError, KeyError):
+        done = set()
+    rows = [r for grp in daily for r in (grp if isinstance(grp, list) else [grp])]
+    summary_dates = sorted({colombo_date(r["tradeDate"]) for r in rows if r.get("tradeDate")})
+    missed = [s for s in summary_dates if s not in done and s > max(done or {""})]
+
     ts = trades.get("reqTradeSummery") or []
     stamped = [x for x in ts if x.get("lastTradedTime")]
     if not stamped:
-        print("CSE returned no trades at all. Nothing to build."); return 10
+        if missed:
+            return alert(f"The CSE shows trading on {', '.join(missed)}, but its per-stock data had already been "
+                         f"cleared when this run started, so that day's report could not be built.")
+        print("CSE returned no trades (normal before the market opens). Nothing to build."); return 10
     # The session to report is the latest day that actually traded, not the clock date,
     # so a run that GitHub starts late (even the next morning) still reports the right day.
     session = max(colombo_date(x["lastTradedTime"]) for x in stamped)
     market_status = status.get("status") or ""
     if session == today and "closed" not in market_status.lower():
         print(f"Market is still trading ({market_status}); not building an intraday report."); return 10
-    try:
-        done = {d["date"] for d in json.load(open(history_path))["days"]}
-    except (OSError, ValueError, KeyError):
-        done = set()
     if session in done:
         print(f"Latest session {session} is already reported (today {today}: {market_status}). Nothing to build."); return 10
     today = session
     traded = [x for x in stamped if colombo_date(x["lastTradedTime"]) == session]
 
-    rows = [r for grp in daily for r in (grp if isinstance(grp, list) else [grp])]
     d = next((r for r in rows if colombo_date(r["tradeDate"]) == today), None)
 
     # Index closes: prefer the CSE's official daily summary, then the sector feed, then the live index feed.

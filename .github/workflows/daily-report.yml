@@ -8,7 +8,12 @@ on:
     - cron: "45 12 * * 1-5"   # 6:15 PM Colombo
     - cron: "40 14 * * 1-5"   # 8:10 PM Colombo
     - cron: "20 0 * * 2-6"    # 5:50 AM Colombo next day (catch-up)
-  workflow_dispatch: {}        # "Run workflow" button for manual runs
+  workflow_dispatch:            # "Run workflow" button for manual runs
+    inputs:
+      test_alert:
+        description: "Only send a test alert email"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -28,18 +33,26 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Test alert only
+        if: inputs.test_alert == true
+        run: |
+          echo "This is a test of the failure alert. Nothing is wrong." > alert.txt
+          echo "TEST_ONLY=true" >> "$GITHUB_ENV"
+
       - name: Collect today's CSE data
         id: collect
+        if: inputs.test_alert != true
         run: |
           set +e
           python collect_cse.py baseline.json day.json history.json
           code=$?
           set -e
           if [ "$code" = "10" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$code" = "20" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           exit $code
 
       - name: Install report tools
-        if: steps.collect.outputs.skip != 'true'
+        if: steps.collect.outputs.skip != 'true' && inputs.test_alert != true
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq fonts-inter fonts-freefont-ttf poppler-utils
@@ -47,7 +60,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Build PDF
-        if: steps.collect.outputs.skip != 'true'
+        if: steps.collect.outputs.skip != 'true' && inputs.test_alert != true
         run: |
           D=$(python -c "import json;print(json.load(open('day.json'))['date'])")
           mkdir -p reports
@@ -56,11 +69,11 @@ jobs:
           echo "DAY=$D" >> "$GITHUB_ENV"
 
       - name: Check for blocked names
-        if: steps.collect.outputs.skip != 'true'
+        if: steps.collect.outputs.skip != 'true' && inputs.test_alert != true
         run: python name_guard.py "$PDF" day.json history.json baseline.json names.json send_email.py build_report.py README.md
 
       - name: Email the report
-        if: steps.collect.outputs.skip != 'true'
+        if: steps.collect.outputs.skip != 'true' && inputs.test_alert != true
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -68,10 +81,22 @@ jobs:
         run: python send_email.py "$PDF" day.json
 
       - name: Save report and history
-        if: steps.collect.outputs.skip != 'true'
+        if: steps.collect.outputs.skip != 'true' && inputs.test_alert != true
         run: |
           git config user.name "cse-daily-report"
           git config user.email "actions@users.noreply.github.com"
           git add history.json names.json reports/
           git commit -m "Daily Stock Focus $DAY" || echo "nothing to commit"
           git push
+
+      - name: Email an alert if anything went wrong
+        if: always() && (failure() || hashFiles('alert.txt') != '')
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python send_alert.py "$(cat alert.txt 2>/dev/null)" "$RUN_URL"
+          # mark the run red so it also stands out on GitHub (not for the test alert)
+          if [ "${TEST_ONLY:-}" != "true" ]; then exit 1; fi
